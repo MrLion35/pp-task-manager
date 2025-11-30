@@ -1190,12 +1190,7 @@
             }
         }
 
-        // Add these variables at the top with other global variables
-        let alarmTimeout = null;
-        let alarmStartTime = null;
-        let alarmDuration = 60000; // 1 minute in milliseconds
-
-        // Replace the createNoisyAlarm function with this continuous version
+        // Create noisy alarm sound using Web Audio API
         function createNoisyAlarm() {
             if (alarmAudioContext) {
                 stopAlarm(); // Stop any existing alarm first
@@ -1203,131 +1198,45 @@
 
             try {
                 alarmAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                alarmOscillator = alarmAudioContext.createOscillator();
+                alarmGainNode = alarmAudioContext.createGain();
 
-                // Create multiple oscillators for a more complex, continuous sound
-                const oscillators = [];
-                const gainNodes = [];
+                // Connect oscillator to gain node and gain node to destination
+                alarmOscillator.connect(alarmGainNode);
+                alarmGainNode.connect(alarmAudioContext.destination);
 
-                // Create 3 different oscillators with different frequencies
-                const frequencies = [440, 554.37, 659.25]; // A, C#, E
-                const types = ['sawtooth', 'square', 'triangle'];
+                // Set oscillator type to create a noisy sound
+                alarmOscillator.type = 'sawtooth';
+                alarmOscillator.frequency.setValueAtTime(440, alarmAudioContext.currentTime); // A4 note
 
-                for (let i = 0; i < 3; i++) {
-                    const oscillator = alarmAudioContext.createOscillator();
-                    const gainNode = alarmAudioContext.createGain();
+                // Create a harsh, noisy effect by modulating frequency
+                alarmOscillator.frequency.exponentialRampToValueAtTime(880, alarmAudioContext.currentTime + 0.1); // Rapidly change frequency
+                alarmOscillator.frequency.exponentialRampToValueAtTime(220, alarmAudioContext.currentTime + 0.2);
 
-                    oscillator.connect(gainNode);
-                    gainNode.connect(alarmAudioContext.destination);
+                // Set gain for loud volume
+                alarmGainNode.gain.setValueAtTime(0.5, alarmAudioContext.currentTime);
 
-                    oscillator.type = types[i];
-                    oscillator.frequency.setValueAtTime(frequencies[i], alarmAudioContext.currentTime);
+                // Start the oscillator
+                alarmOscillator.start();
 
-                    // Add some frequency modulation for a more alarming sound
-                    oscillator.frequency.setValueAtTime(frequencies[i] * 0.8, alarmAudioContext.currentTime + 0.5);
-                    oscillator.frequency.setValueAtTime(frequencies[i] * 1.2, alarmAudioContext.currentTime + 1);
-
-                    // Set gain with some variation
-                    gainNode.gain.setValueAtTime(0.2 + (i * 0.1), alarmAudioContext.currentTime);
-
-                    oscillators.push(oscillator);
-                    gainNodes.push(gainNode);
-
-                    // Start the oscillator
-                    oscillator.start();
-                }
-
-                alarmOscillator = oscillators[0]; // Keep reference to first one for stopping
                 isAlarmPlaying = true;
-                alarmStartTime = Date.now();
 
-                // Schedule continuous modulation to keep the alarm sounding
-                scheduleAlarmModulation(oscillators, gainNodes);
-
-                // Set timeout to stop after 1 minute if not already stopped
-                alarmTimeout = setTimeout(() => {
+                // Stop after 3 seconds
+                setTimeout(() => {
                     if (isAlarmPlaying) {
                         stopAlarm();
-                        showNotification('Alarm has been automatically dismissed after 1 minute', 'warning');
                     }
-                }, alarmDuration);
+                }, 3000);
 
             } catch (error) {
                 console.error('Error creating alarm sound:', error);
-                // Fallback: Use continuous beeping if Web Audio API is not supported
-                fallbackContinuousAlarm();
+                // Fallback: Use a simple beep if Web Audio API is not supported
+                fallbackAlarm();
             }
         }
 
-        // Helper function to schedule continuous modulation
-        function scheduleAlarmModulation(oscillators, gainNodes) {
-            if (!isAlarmPlaying) return;
-
-            const currentTime = alarmAudioContext.currentTime;
-            const elapsed = Date.now() - alarmStartTime;
-
-            // Continue modulation for the full duration
-            if (elapsed < alarmDuration) {
-                // Random modulation to keep the alarm attention-grabbing
-                oscillators.forEach((oscillator, index) => {
-                    const baseFreq = [440, 554.37, 659.25][index];
-                    const randomVariation = 0.8 + Math.random() * 0.4;
-                    oscillator.frequency.setValueAtTime(baseFreq * randomVariation, currentTime + 0.1);
-
-                    // Pulsing volume effect
-                    gainNodes[index].gain.setValueAtTime(0.2 + (index * 0.1), currentTime);
-                    gainNodes[index].gain.exponentialRampToValueAtTime(0.05 + (index * 0.05), currentTime + 0.3);
-                    gainNodes[index].gain.exponentialRampToValueAtTime(0.2 + (index * 0.1), currentTime + 0.6);
-                });
-
-                // Schedule next modulation
-                setTimeout(() => scheduleAlarmModulation(oscillators, gainNodes), 600);
-            }
-        }
-
-        // Replace the fallbackAlarm function with a continuous version
-        function fallbackContinuousAlarm() {
-            try {
-                let beepCount = 0;
-                const maxBeeps = 100; // Approximately 1 minute of beeps
-
-                function playBeep() {
-                    if (!isAlarmPlaying || beepCount >= maxBeeps) return;
-
-                    const beep = new Audio(`data:audio/wav;base64,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qJrx4KOQjahZxWbcZgztj2c49nKmkId44S71j0c8eV9yDK6uPRzx5X18eDvjvQ6yKo9ZSS6l//8elePK/Lf//IInrOF/FvDoADYAGBMGb7FtErm5MXMlmPAJQVgWta7Zx2go+8xJ0UiCb8LHHdftWyLJE0QIAIsI+UbXu67dZMjmgDGCGl1H+vpF4NSDckSIkk7Vd+sxEhBQMRU8j/12UIRhzSaUdQ+rQU5kGeFxm+hb1oh6pWWmv3uvmReDl0UnvtapVaIzo1jZbf/pD6ElLqSX+rUmOQNpJFa/r+sa4e/pBlAABoAAAAA3CUgShLdGIxsY7AUABPRrgCABdDuQ5GC7DqPQCgbbJUAoRSUj+NIEig0YfyWUho1VBBBA//uQZB4ABZx5zfMakeAAAAmwAAAAF5F3P0w9GtAAACfAAAAAwLhMDmAYWMgVEG1U0FIGCBgXBXAtfMH10000EEEEEECUBYln03TTTdNBDZopopYvrTTdNa325mImNg3TTPV9q3pmY0xoO6bv3r00y+IDGid/9aaaZTGMuj9mpu9Mpio1dXrr5HERTZSmqU36A3CumzN/9Robv/Xx4v9ijkSRSNLQhAWumap82WRSBUqXStV/YcS+XVLnSS+WLDroqArFkMEsAS+eWmrUzrO0oEmE40RlMZ5+ODIkAyKAGUwZ3mVKmcamcJnMW26MRPgUw6j+LkhyHGVGYjSUUKNpuJUQoOIAyDvEyG8S5yfK6dhZc0Tx1KI/gviKL6qvvFs1+bWtaz58uUNnryq6kt5RzOCkPWlVqVX2a/EEBUdU1KrXLf40GoiiFXK///qpoiDXrOgqDR38JB0bw7SoL+ZB9o1RCkQjQ2CBYZKd/+VJxZRRZlqSkKiws0WFxUyCwsKiMy7hUVFhIaCrNQsKkTIsLivwKKigsj8XYlwt/WKi2N4d//uQRCSAAjURNIHpMZBGYiaQPSYyAAABLAAAAAAAACWAAAAApUF/Mg+0aohSIRobBAsMlO//Kk4soosy1JSFRYWaLC4qZBYWFRGZdwqKiwkNBVmoWFSJkWFxX4FFRQWR+LsS4W/rFRb/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////VEFHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU291bmRib3kuZGUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMjAwNGh0dHA6Ly93d3cuc291bmRib3kuZGUAAAAAAAAAACU=`);
-                    beep.volume = 0.3;
-                    beep.play().catch(e => console.log('Fallback alarm play failed:', e));
-
-                    beepCount++;
-
-                    // Schedule next beep (every 600ms for continuous sound)
-                    if (beepCount < maxBeeps) {
-                        setTimeout(playBeep, 600);
-                    }
-                }
-
-                playBeep();
-                alarmStartTime = Date.now();
-
-                // Set timeout to stop after 1 minute
-                alarmTimeout = setTimeout(() => {
-                    if (isAlarmPlaying) {
-                        stopAlarm();
-                        showNotification('Alarm has been automatically dismissed after 1 minute', 'warning');
-                    }
-                }, alarmDuration);
-
-            } catch (e) {
-                console.log('Fallback alarm not supported');
-            }
-        }
-
-        // Update the stopAlarm function to clear the timeout
+        // Stop the alarm sound
         function stopAlarm() {
-            if (alarmTimeout) {
-                clearTimeout(alarmTimeout);
-                alarmTimeout = null;
-            }
-
             if (alarmOscillator) {
                 alarmOscillator.stop();
                 alarmOscillator = null;
@@ -1337,61 +1246,20 @@
                 alarmAudioContext = null;
             }
             isAlarmPlaying = false;
-            alarmStartTime = null;
         }
 
-        // Update the testAlarm function to only test for 3 seconds
-        function testAlarm() {
-            // For testing, only play for 3 seconds
-            createNoisyAlarm();
-
-            // Stop after 3 seconds for test
-            setTimeout(() => {
-                if (isAlarmPlaying) {
-                    stopAlarm();
-                }
-            }, 3000);
-
-            showNotification('Testing alarm sound for 3 seconds!', 'warning');
+        // Fallback alarm for browsers that don't support Web Audio API
+        function fallbackAlarm() {
+            // Create a simple beep using the older method
+            try {
+                const beep = new Audio(`data:audio/wav;base64,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qJrx4KOQjahZxWbcZgztj2c49nKmkId44S71j0c8eV9yDK6uPRzx5X18eDvjvQ6yKo9ZSS6l//8elePK/Lf//IInrOF/FvDoADYAGBMGb7FtErm5MXMlmPAJQVgWta7Zx2go+8xJ0UiCb8LHHdftWyLJE0QIAIsI+UbXu67dZMjmgDGCGl1H+vpF4NSDckSIkk7Vd+sxEhBQMRU8j/12UIRhzSaUdQ+rQU5kGeFxm+hb1oh6pWWmv3uvmReDl0UnvtapVaIzo1jZbf/pD6ElLqSX+rUmOQNpJFa/r+sa4e/pBlAABoAAAAA3CUgShLdGIxsY7AUABPRrgCABdDuQ5GC7DqPQCgbbJUAoRSUj+NIEig0YfyWUho1VBBBA//uQZB4ABZx5zfMakeAAAAmwAAAAF5F3P0w9GtAAACfAAAAAwLhMDmAYWMgVEG1U0FIGCBgXBXAtfMH10000EEEEEECUBYln03TTTdNBDZopopYvrTTdNa325mImNg3TTPV9q3pmY0xoO6bv3r00y+IDGid/9aaaZTGMuj9mpu9Mpio1dXrr5HERTZSmqU36A3CumzN/9Robv/Xx4v9ijkSRSNLQhAWumap82WRSBUqXStV/YcS+XVLnSS+WLDroqArFkMEsAS+eWmrUzrO0oEmE40RlMZ5+ODIkAyKAGUwZ3mVKmcamcJnMW26MRPgUw6j+LkhyHGVGYjSUUKNpuJUQoOIAyDvEyG8S5yfK6dhZc0Tx1KI/gviKL6qvvFs1+bWtaz58uUNnryq6kt5RzOCkPWlVqVX2a/EEBUdU1KrXLf40GoiiFXK///qpoiDXrOgqDR38JB0bw7SoL+ZB9o1RCkQjQ2CBYZKd/+VJxZRRZlqSkKiws0WFxUyCwsKiMy7hUVFhIaCrNQsKkTIsLivwKKigsj8XYlwt/WKi2N4d//uQRCSAAjURNIHpMZBGYiaQPSYyAAABLAAAAAAAACWAAAAApUF/Mg+0aohSIRobBAsMlO//Kk4soosy1JSFRYWaLC4qZBYWFRGZdwqKiwkNBVmoWFSJkWFxX4FFRQWR+LsS4W/rFRb/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////VEFHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU291bmRib3kuZGUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMjAwNGh0dHA6Ly93d3cuc291bmRib3kuZGUAAAAAAAAAACU=`);
+                beep.volume = 0.3;
+                beep.play().catch(e => console.log('Fallback alarm play failed:', e));
+            } catch (e) {
+                console.log('Fallback alarm not supported');
+            }
         }
 
-        // Update the dismissAlarm function
-        function dismissAlarm() {
-            alarmOverlay.style.display = 'none';
-            stopAlarm();
-            showNotification('Alarm dismissed', 'success');
-        }
-
-        // Update the snoozeAlarm function
-        function snoozeAlarm() {
-            alarmOverlay.style.display = 'none';
-            stopAlarm();
-
-            // Set a timeout to show the alarm again in 5 minutes
-            setTimeout(() => {
-                checkReminders();
-            }, 5 * 60 * 1000); // 5 minutes
-
-            showNotification('Alarm snoozed for 5 minutes', 'warning');
-        }
-
-        // Update the close modal handler for alarm overlay
-        window.addEventListener('click', (event) => {
-            if (event.target === shareModal) {
-                shareModal.style.display = 'none';
-            }
-            if (event.target === reminderModal) {
-                reminderModal.style.display = 'none';
-            }
-            if (event.target === resetModal) {
-                resetModal.style.display = 'none';
-            }
-            if (event.target === alarmOverlay) {
-                alarmOverlay.style.display = 'none';
-                stopAlarm();
-                showNotification('Alarm dismissed', 'success');
-            }
-        });
         // Test alarm sound
         function testAlarm() {
             createNoisyAlarm();
